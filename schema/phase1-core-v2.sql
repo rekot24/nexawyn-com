@@ -342,3 +342,12 @@ CREATE TABLE app_logs (
 CREATE INDEX idx_app_logs_level  ON app_logs(level);
 CREATE INDEX idx_app_logs_module ON app_logs(module);
 CREATE INDEX idx_app_logs_ts     ON app_logs(timestamp);
+
+-- ────────────────────────────────────────
+-- STEP 6: Grant table access to Supabase roles
+-- Required when creating tables via SQL (not the Supabase UI).
+-- Without this, anon and authenticated roles get permission denied
+-- even with RLS disabled.
+-- ────────────────────────────────────────
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
