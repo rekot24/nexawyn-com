@@ -235,7 +235,171 @@ Once parts arrive, Joshua will contact you to schedule.
 
 ---
 
-### 6. Payments — Stripe Integration
+### 6. Photo Documentation
+Native job photo management — modeled after CompanyCam but fully integrated into the job record, status flow, and customer portal. The key differentiator: photos in Nexawyn know their context automatically. A photo taken during `assessment_complete` is an assessment photo. A photo taken during `job_in_progress` is a mid-job photo. That context is automatic — not manual tagging.
+
+**Why photos matter in field service:**
+- **CYA documentation** — timestamped proof of site condition before work begins. Protects against "you caused that damage" disputes.
+- **Insurance job documentation** — before/during/after photo sets for adjuster review. Especially critical for water damage, fire, and restoration work.
+- **Completion proof** — customer disputes the work was done. Timestamped photos from `job_complete` status are the answer.
+- **Scope expansion** — damage found outside the original scope gets photographed, flagged, and quoted directly from the job record.
+
+**Photo categories (auto-assigned by job status at time of capture):**
+
+| Category | Status at capture | Who sees it |
+|----------|-------------------|-------------|
+| `assessment` | `assessment_complete` | Operator + customer (alongside quote) |
+| `in_progress` | `job_in_progress` | Operator only |
+| `completion` | `job_complete` | Operator + customer (with invoice) |
+| `damage` | Any | Operator only (triggers scope expansion) |
+| `document` | Any | Operator only |
+
+**What native integration unlocks that CompanyCam can't do:**
+- Assessment photos appear alongside the customer's quote — they see exactly what you saw. Builds trust, improves quote acceptance.
+- Completion before/after pair auto-attaches to the invoice — no "let me send you the photos separately."
+- Insurance job → full photo timeline with timestamps is exportable as a PDF report tied to the job record. One tap.
+- Customer pulls up a past job in the portal — photos are right there in the job history. Not in a separate app.
+- A year from now — you pull up a past job and the full photo record is there alongside every other job detail.
+
+**Storage architecture decision:**
+
+Photos are NOT stored in the Supabase database. The database stores the URL, metadata, and context. The actual image files live in Cloudflare R2.
+
+```
+Photo taken on phone
+      ↓
+Uploaded directly to Cloudflare R2
+      ↓
+URL + metadata written to job_photos table in Supabase
+      ↓
+Served via Cloudflare CDN to anyone authorized to view it
+```
+
+**Why Cloudflare R2 and not Supabase Storage:**
+- Supabase Storage is fine for a single operator at low volume
+- At SaaS scale (1,000 operators × 50 jobs/month × 10 photos = 500,000 photos/month), egress fees on any other provider become significant
+- Cloudflare R2 has **zero egress fees** — photos can be viewed as many times as needed at no additional cost
+- R2 uses the same S3-compatible API, so the migration path is straightforward when the time comes
+- For Phase 2 (single operator): Supabase Storage is acceptable as a starting point
+- For SaaS launch: migrate to R2 — schema change is zero because the `job_photos` table stores a `storage_url` field, not the file itself
+
+**Database table:**
+```sql
+CREATE TABLE job_photos (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id           UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  storage_url      TEXT NOT NULL,          -- R2 URL (or Supabase Storage URL in early phase)
+  thumbnail_url    TEXT,                   -- smaller version for gallery views
+  category         TEXT NOT NULL,          -- assessment | in_progress | completion | damage | document
+  status_at_capture TEXT,                  -- job status when photo was taken
+  caption          TEXT,                   -- optional operator note
+  geo_lat          NUMERIC(10,7),          -- GPS latitude at capture
+  geo_lon          NUMERIC(10,7),          -- GPS longitude at capture
+  taken_at         TIMESTAMPTZ NOT NULL,   -- device timestamp at capture
+  uploaded_at      TIMESTAMPTZ DEFAULT now(),
+  uploaded_by      UUID,                   -- operator_id for multi-user future
+  file_size_bytes  INTEGER,
+  mime_type        TEXT DEFAULT 'image/jpeg'
+);
+
+CREATE INDEX idx_job_photos_job    ON job_photos(job_id, taken_at);
+CREATE INDEX idx_job_photos_cat    ON job_photos(job_id, category);
+```
+
+**Access control (who sees what):**
+- Operator sees all photos for all their jobs — always
+- Customer sees `assessment` and `completion` photos only — surfaced in quote view and invoice view
+- Insurance export — all photos for a job with timestamps, exported as a timestamped PDF report
+
+**Database table:** `job_photos`
+
+---
+
+### 7. Settings Store & Feature Flags
+The application-wide configuration layer. Every value that could change — timing defaults, business preferences, feature availability, plan tier access — lives here. Nothing meaningful is hardcoded in the app.
+
+**Why this is a backbone component (not an afterthought):**
+Without a settings store, changing a default requires a code deploy. With a settings store, the operator changes it in their settings UI and it takes effect instantly — no code touched. At SaaS scale, this is also what enables different operators to have different configurations, and different plan tiers to have different capabilities.
+
+**Three tiers of configuration:**
+
+**Tier 1 — Operator preferences** (operator-controlled via settings UI):
+- Business name, logo, contact info
+- Default labor rate and markup percentage
+- Quote follow-up timing (default: 24hr first SMS, 48hr alert)
+- SMS message templates — the exact wording of every automated message
+- Invoice number prefix and format
+- Timezone
+- Notification preferences
+
+**Tier 2 — Feature flags** (operator-visible; plan-gated in SaaS phase):
+Every feature in the platform has a database-driven on/off switch. The feature checks its flag before rendering. If the flag is off, the feature doesn't appear — not disabled, just absent.
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `photos_enabled` | `true` | Photo documentation module |
+| `hd_sync_enabled` | `false` | Home Depot purchase sync |
+| `parts_tracking_enabled` | `false` | Parts ordering + SMS tracking |
+| `sms_followup_enabled` | `true` | Automated quote follow-up |
+| `bank_link_enabled` | `false` | Stripe Financial Connections |
+| `accounting_enabled` | `true` | Double-entry accounting module |
+| `debug_enabled` | `false` | Debug output (dev use only) |
+
+**Tier 3 — Plan tier config** (platform-controlled; determines what the operator can access):
+- `plan_tier`: `solo` | `pro` | `crew` | `franchise`
+- Plan tier is checked alongside feature flags — a feature must be both enabled AND unlocked for the operator's plan
+- Changing a plan tier in the database instantly changes what the operator sees with no code deploy
+
+**Database table:**
+```sql
+CREATE TABLE operator_settings (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  operator_id     UUID REFERENCES operators(id) ON DELETE CASCADE,
+
+  -- Tier 1: Operator preferences
+  business_name         TEXT,
+  labor_rate_default    NUMERIC(10,2) DEFAULT 75.00,
+  markup_default        NUMERIC(5,4)  DEFAULT 0.20,
+  quote_followup_hrs    INTEGER       DEFAULT 24,
+  quote_alert_hrs       INTEGER       DEFAULT 48,
+  invoice_prefix        TEXT          DEFAULT 'NXW',
+  timezone              TEXT          DEFAULT 'America/Denver',
+  sms_template_quote    TEXT,
+  sms_template_followup TEXT,
+  sms_template_reminder TEXT,
+
+  -- Tier 2: Feature flags
+  photos_enabled          BOOLEAN DEFAULT true,
+  hd_sync_enabled         BOOLEAN DEFAULT false,
+  parts_tracking_enabled  BOOLEAN DEFAULT false,
+  sms_followup_enabled    BOOLEAN DEFAULT true,
+  bank_link_enabled       BOOLEAN DEFAULT false,
+  accounting_enabled      BOOLEAN DEFAULT true,
+  debug_enabled           BOOLEAN DEFAULT false,
+
+  -- Debug sub-flags
+  debug_log_state_changes  BOOLEAN DEFAULT true,
+  debug_log_api_calls      BOOLEAN DEFAULT false,
+  debug_log_settings_reads BOOLEAN DEFAULT false,
+  debug_log_render_cycles  BOOLEAN DEFAULT false,
+
+  -- Tier 3: Plan config
+  plan_tier     TEXT DEFAULT 'solo',
+
+  updated_at    TIMESTAMPTZ DEFAULT now()
+);
+```
+
+**How it works in the React app:**
+Settings are fetched once on app load, stored in React Context (`SettingsContext`), and available to every component without prop drilling. When a setting changes in the UI, it writes to Supabase and updates the context — every component re-renders with the new value instantly. No page reload. No restart.
+
+See `snippets/useSettings.js` and `snippets/useFeatureFlags.js` in the dev-standards repo for the full implementation.
+
+**Database table:** `operator_settings`
+
+---
+
+### 8. Payments — Stripe Integration
 - Invoice auto-generated when job moves to `job_complete`
 - Invoice number format: NXW-2026-0001
 - Payment link sent to customer via Twilio SMS
@@ -247,8 +411,8 @@ Once parts arrive, Joshua will contact you to schedule.
 
 ---
 
-### 7. Customer Communications — Twilio SMS
-Every customer touchpoint automated but personal-feeling. All messages configurable. All outbound and inbound messages logged against the customer record.
+### 9. Customer Communications — Twilio SMS
+Every customer touchpoint automated but personal-feeling. All messages configurable via the settings store — the operator edits wording in their settings UI, changes take effect on the next send. All outbound and inbound messages logged against the customer record.
 
 **Automated message triggers:**
 - Booking confirmation
@@ -265,7 +429,7 @@ Every customer touchpoint automated but personal-feeling. All messages configura
 
 ---
 
-### 8. Accounting Engine
+### 10. Accounting Engine
 Built on double-entry bookkeeping — the standard structure used by every accounting system since 1494, implemented directly in Supabase PostgreSQL.
 
 **How entries are created (automatically):**
@@ -311,7 +475,7 @@ Dashboard live view:
 
 ---
 
-### 9. Reporting & Intelligence
+### 11. Reporting & Intelligence
 
 **Standard reports:**
 - Revenue by period (day, week, month, year)
@@ -347,7 +511,7 @@ Alerts surface automatically. You don't hunt for problems — the system surface
 
 ---
 
-### 10. Website Integration
+### 12. Website Integration
 The platform connects to your existing marketing site — it doesn't replace it.
 
 **Three separate concerns, one database:**
@@ -358,7 +522,7 @@ skilledhandymanservices.com     ← marketing, SEO, public
   /book  → posts to Nexawyn API → job created in database
 
 portal.nexawyn.com              ← customer-facing portal
-  View quotes, approve, pay invoices, track parts
+  View quotes, approve, pay invoices, track parts, view photos
 
 app.nexawyn.com                 ← internal operator dashboard
   Your full operations tool (password protected)
@@ -382,6 +546,8 @@ Marketing site stays lean, static, SEO-optimized (Jamstack). Portal and app are 
 | HD Product API | RapidAPI | ~$5/1,000 lookups |
 | Parts tracking | UPS/FedEx/USPS APIs | Free |
 | Email | SendGrid | Free tier |
+| **Photo storage (Phase 2)** | **Supabase Storage** | **Free tier (temp)** |
+| **Photo storage (SaaS)** | **Cloudflare R2 + CDN** | **~$0.015/GB, zero egress** |
 
 **Estimated monthly infrastructure cost: $10–20**
 **Current tooling being replaced: $115–145/month**
@@ -398,25 +564,27 @@ Marketing site stays lean, static, SEO-optimized (Jamstack). Portal and app are 
 **Instance:** us-east-2, 14g.nano
 **Status:** Healthy
 
-### Tables (15 total — all created September 6, 2026)
+### Tables (17 total — Phase 1: 15 built Sept 6, 2026 | Phase 2 additions: 2)
 
-| Table | Purpose |
-|-------|---------|
-| `customers` | Core customer records |
-| `addresses` | Multiple properties per customer |
-| `communications` | Every SMS, email, call logged |
-| `materials` | Living HD-linked parts catalog |
-| `job_templates` | Pre-built quote templates |
-| `template_materials` | Parts list inside each template |
-| `template_labor` | Labor lines inside each template |
-| `jobs` | Core operational record |
-| `job_materials` | Actual parts used per job (with parts ordering fields) |
-| `job_labor` | Time breakdown per job |
-| `invoices` | Customer invoices |
-| `accounts` | Chart of accounts (seeded) |
-| `entries` | Double-entry accounting transactions |
-| `hd_purchases` | Home Depot Pro Xtra sync records |
-| `job_status_history` | Full audit trail of every status change |
+| Table | Purpose | Phase |
+|-------|---------|-------|
+| `customers` | Core customer records | 1 ✅ |
+| `addresses` | Multiple properties per customer | 1 ✅ |
+| `communications` | Every SMS, email, call logged | 1 ✅ |
+| `materials` | Living HD-linked parts catalog | 1 ✅ |
+| `job_templates` | Pre-built quote templates | 1 ✅ |
+| `template_materials` | Parts list inside each template | 1 ✅ |
+| `template_labor` | Labor lines inside each template | 1 ✅ |
+| `jobs` | Core operational record | 1 ✅ |
+| `job_materials` | Actual parts used per job (with parts ordering fields) | 1 ✅ |
+| `job_labor` | Time breakdown per job | 1 ✅ |
+| `invoices` | Customer invoices | 1 ✅ |
+| `accounts` | Chart of accounts (seeded) | 1 ✅ |
+| `entries` | Double-entry accounting transactions | 1 ✅ |
+| `hd_purchases` | Home Depot Pro Xtra sync records | 1 ✅ |
+| `job_status_history` | Full audit trail of every status change | 1 ✅ |
+| `job_photos` | Photo records (URL + metadata + context) | 2 — add before Phase 2 build |
+| `operator_settings` | Settings store: preferences, feature flags, plan tier | 2 — add before Phase 2 build |
 
 ### Key Design Decisions
 - `external_id UNIQUE` on entries — prevents duplicate imports from any source
@@ -426,6 +594,8 @@ Marketing site stays lean, static, SEO-optimized (Jamstack). Portal and app are 
 - All timestamps use `TIMESTAMPTZ` — timezone-aware
 - Indexes on all foreign keys and status/date fields for query performance
 - RLS (Row Level Security) enabled at project level
+- `storage_url` on job_photos stores a URL — file lives in storage (Supabase Storage now, R2 at scale). Schema never changes when storage backend changes.
+- `operator_settings` row auto-created on first login with all defaults — app never needs to handle a missing row
 
 ### Seeded Data
 Chart of accounts pre-loaded:
@@ -487,8 +657,17 @@ Customer approves
 - [x] CLAUDE.md project instructions written
 
 ### Phase 2 — Internal Dashboard (Current Phase)
-- [ ] React + Vite project initialized
-- [ ] Supabase client connected
+**Schema additions required before build begins:**
+- [ ] Add `job_photos` table to Supabase
+- [ ] Add `operator_settings` table to Supabase — auto-seed defaults on first login
+
+**App build:**
+- [ ] React + Vite project initialized ✅ (done)
+- [ ] Supabase client connected ✅ (done)
+- [ ] RLS temporarily disabled on dev tables (Option B — re-enable with auth)
+- [ ] SettingsContext + useSettings hook wired at app root
+- [ ] useFeatureFlags hook created
+- [ ] logger.js wired to Supabase
 - [ ] Job list view — organized by status
 - [ ] Customer profile view
 - [ ] Quote builder with template selection
@@ -496,14 +675,16 @@ Customer approves
 - [ ] Quote total calculation with markup
 - [ ] SMS send via Twilio
 - [ ] Job status update on user action
+- [ ] Basic photo capture and attach to job (assessment + completion)
 - [ ] Basic auth (Supabase Auth)
 
 *(Ugly is fine. Working on real jobs is the goal.)*
 
 ### Phase 3 — Customer Portal
 - [ ] Quote view page (SMS link destination)
+- [ ] Assessment photos shown alongside quote line items
 - [ ] Online quote approval
-- [ ] Invoice view page
+- [ ] Invoice view page with completion photos
 - [ ] Stripe payment integration
 - [ ] Parts status tracking page
 
@@ -520,6 +701,8 @@ Customer approves
 - [ ] Stripe Financial Connections bank link
 - [ ] Parts tracking API (UPS/FedEx/USPS)
 - [ ] Automated parts SMS notifications
+- [ ] Photo export — PDF report with timestamps (for insurance jobs)
+- [ ] Migrate photo storage from Supabase Storage → Cloudflare R2
 - [ ] Reporting dashboard
 - [ ] Template self-calibration from job history
 - [ ] Business cockpit with alerts
@@ -545,10 +728,11 @@ Customer approves
 | HouseCallPro | $65 | Overbuilt for solo, dead zone after site visit, no material tracking |
 | QuickBooks | $50 | Disconnected from operations, bloated, forced dependency |
 | Jobber | $70 | Same problems as HCP |
+| CompanyCam | $49 | Photos only — siloed, no job context, no customer integration |
 | ServiceTitan | $300+ | Enterprise-only, built for multi-tech crews |
 | **Nexawyn** | **$29** | **Purpose-built, connected, intelligent, learns your business** |
 
-**What $29 replaces:** $115–145/month of disconnected tools.
+**What $29 replaces:** $115–195/month of disconnected tools (including CompanyCam).
 
 **Pricing tiers:**
 
@@ -593,7 +777,7 @@ Infrastructure cost at 1,000 customers: ~$300/month. Margins are extraordinary.
 - Cleaning services
 - Pest control
 - Pool service
-- Restoration companies ← direct Bio-One experience
+- Restoration companies ← direct Bio-One experience (insurance photo documentation is critical here)
 
 **Franchise market (high value):**
 - Franchisor dashboard — aggregate performance across all franchisees
@@ -611,15 +795,38 @@ At scale, aggregate data across thousands of operators becomes a product in itse
 
 ---
 
+## Architecture Decisions Log
+
+| Date | Decision | Reasoning |
+|------|----------|-----------|
+| Sept 6, 2026 | Supabase (Postgres) as database | Single source of truth; RLS; real-time; free tier; scales |
+| Sept 6, 2026 | React + Vite frontend | Fast builds; component model fits modular approach |
+| Sept 6, 2026 | Vercel hosting | Deploys on git push; free tier; zero config |
+| Sept 6, 2026 | Double-entry accounting in Supabase | Eliminates QuickBooks dependency; source of truth is ours |
+| Sept 7, 2026 | Photos stored as URLs in Supabase, files in object storage | Decouples schema from storage backend — swap storage provider without schema migration |
+| Sept 7, 2026 | Cloudflare R2 as photo storage (at scale) | Zero egress fees at SaaS scale; S3-compatible API; Supabase Storage acceptable for Phase 2 only |
+| Sept 7, 2026 | Settings store as first-class backbone component | All configurable values in database; app reads at runtime; operator controls without code deploys; enables plan-tier gating at SaaS launch |
+| Sept 7, 2026 | Feature flags for every module | No feature runs unconditionally; enables safe partial rollout; plan-tier gating built in from day one |
+| Sept 7, 2026 | dev-standards updated to include web stack | All architectural patterns documented in Rekot24/dev-standards; web-app-framework.md is the reference for this project |
+
+---
+
 ## Project Folder Structure
 
 ```
 nexawyn/
   ├── CLAUDE.md                    ← Claude project instructions
   ├── field-service-platform.md   ← this working document
+  ├── ROADMAP.md                  ← living roadmap (future)
   ├── schema/
   │   └── phase1-core.sql         ← full Phase 1 schema (run Sept 6, 2026)
   ├── src/                        ← React app (Phase 2)
+  │   ├── constants/              ← named constants (no magic numbers)
+  │   ├── context/                ← React Context providers
+  │   ├── hooks/                  ← useSettings, useFeatureFlags, useJobs, etc.
+  │   ├── components/             ← UI components by domain
+  │   ├── lib/                    ← supabase.js, logger.js, formatters.js
+  │   └── styles/                 ← tokens.css, globals.css
   └── docs/                       ← additional documentation
 ```
 
@@ -634,14 +841,19 @@ nexawyn/
 - [x] Save schema to project folder
 - [x] Write CLAUDE.md project instructions
 - [x] Update working document
-- [ ] Move project to Claude Projects with both docs uploaded
-- [ ] Initialize React + Vite project in /src
-- [ ] Install Supabase JS client
-- [ ] Connect app to Supabase
-- [ ] Build first screen — job list by status
+- [x] Initialize React + Vite project
+- [x] Install Supabase JS client
+- [x] Connect app to Supabase (connection confirmed)
+- [x] Update dev-standards repo with web stack framework
+- [ ] Add `job_photos` table to Supabase schema
+- [ ] Add `operator_settings` table to Supabase schema
+- [ ] Wire SettingsContext and useSettings at app root
+- [ ] Wire useFeatureFlags hook
+- [ ] Wire logger.js to Supabase
+- [ ] Disable RLS on dev tables (Option B) and build job list screen
 
 **The rule:** Build for Skilled Handyman Services first. If it works for one real business, everything else follows.
 
 ---
 
-*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 6, 2026 — Phase 1 complete.*
+*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 7, 2026 — Photo handling and settings store architecture added.*
