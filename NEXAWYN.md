@@ -685,6 +685,72 @@ aisle so the trip is a single efficient pass through the store.
 
 ---
 
+### 17. On-Site Workflow & Job Interruptions
+
+**Status-driven screen shifts:**
+When "Mark Arrived" is tapped, the job moves to `job_in_progress` and the 
+screen shifts — primary actions become photo capture and job controls. 
+Pre-job prep elements fade back.
+
+**Pause Job flow:**
+Tapping "Pause Job" prompts the operator to select a reason before leaving 
+the site. Reason is required — the job record always reflects what happened 
+and why.
+
+| Reason | What happens next |
+|--------|------------------|
+| Need materials / supply run | Opens buy list; optionally launches Maps to nearest HD |
+| Forgot a tool — returning shortly | Logs pause with timestamp; job stays in_progress |
+| Rescheduling — returning another day | Prompts for return date; creates new schedule_event on same job |
+| Scope change — need to update quote | Opens scope change flow (see below) |
+| Customer stopped the job | Prompts for note; flags job for follow-up; logs with timestamp |
+| Other | Free text note logged to job record with timestamp |
+
+All pause reasons log to `job_status_history` with timestamp. The job never 
+returns to blank — there is always a record of what happened and when.
+
+**Scope change flow:**
+When scope change is selected, operator first answers:
+Is this additional work part of today's job?
+
+[ Yes — adding to current work order ]
+[ No — this is a separate job ]
+
+**Yes — same work order:**
+- **Add to this job now** — opens quote editor on the current job. New line 
+  items, materials, and labor added. Updated quote sent to customer for 
+  approval before work resumes. Fully documented and approved on site.
+- **Take photos and quote later** — opens camera in scope photo mode. Operator 
+  shoots and adds a voice or text note. Job flagged as "scope addition pending" 
+  until the updated quote is built and sent.
+
+**No — separate job:**
+Creates a new job record linked to the same customer, pre-populated with 
+customer info and property address. Drops into the assessment/quote flow for 
+the new job. The original job continues unaffected. One job, one invoice, 
+one scope — no blended work orders.
+
+Neither path forces a decision under pressure. The operator picks what fits 
+the moment — both are fully documented.
+
+- **Add to this job now** — opens quote editor on the job. New line items, 
+  materials, and labor are added. Updated quote sent to customer for approval 
+  before work resumes. Fully documented and approved on site.
+- **Take photos and quote later** — opens camera in scope photo mode. Operator 
+  shoots what's needed and adds a voice or text note. Job is flagged as 
+  "scope addition pending" and surfaces on the home screen as a contextual 
+  alert until the quote is built and sent.
+
+Neither path forces a decision under pressure. The operator picks what fits 
+the moment — both are fully documented.
+
+**Scope addition pending flag:**
+A job with an unresolved scope addition shows a contextual alert on its job 
+card everywhere it appears:
+Flag clears when the updated quote is sent.
+
+---
+
 ## Technology Stack
 
 | Layer | Tool | Cost |
