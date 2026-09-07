@@ -78,3 +78,7 @@ ALTER TABLE operator_settings
   ADD COLUMN on_my_way_open_maps     BOOLEAN DEFAULT true,
   ADD COLUMN on_my_way_include_eta   BOOLEAN DEFAULT true,
   ADD COLUMN on_my_way_sms_template  TEXT DEFAULT 'Hi {customer_name}, I''m on my way! See you in about {eta}. — Joshua';
+
+-- Material buy list feature settings
+ALTER TABLE operator_settings
+  ADD COLUMN local_hd_store_id TEXT;

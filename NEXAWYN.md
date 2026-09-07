@@ -653,6 +653,38 @@ job records or fragmented billing across schedule pages.
 
 ---
 
+### 16. Materials Buy List
+
+The job screen includes a Materials tab showing all parts on the job as a 
+checklist. This doubles as a buy list for pre-job supply runs.
+
+**Per-item display (when HD integration is active):**
+- Item name and quantity needed
+- In-stock status at operator's local Home Depot
+- Aisle and bay location
+- Low stock warning (fewer than 3 remaining)
+- Out of stock flag
+
+**Checklist behavior:**
+- Checking an item marks it as acquired in `job_materials`
+- Unchecked items are still needed — checked items are done
+- List persists — if you close and reopen, state is saved
+
+**Multi-job buy list:**
+When heading to Home Depot before multiple jobs, the operator can generate a 
+combined buy list across all jobs scheduled for the day. Items are grouped by 
+aisle so the trip is a single efficient pass through the store.
+
+**Settings:**
+- `local_hd_store_id` — operator's primary Home Depot store (set once in 
+  settings; used for stock and aisle lookups)
+
+**Role access:**
+- Owner / Admin — full materials view including costs and markup
+- Technician — checklist view only; no pricing visible
+
+---
+
 ## Technology Stack
 
 | Layer | Tool | Cost |
@@ -937,6 +969,7 @@ At scale, aggregate data across thousands of operators becomes a product in itse
 | Sept 7, 2026 | Jobs and schedule_events are separate tables | Billing and job context live on jobs; schedule_events are time blocks with a job_id FK — solves HouseCallPro multi-day job fragmentation |
 | Sept 7, 2026 | Role-based permissions in schema from day one | user_roles table built in Phase 2; features hidden (not just disabled) for unauthorized roles; solo operator = owner role with full access |
 | Sept 7, 2026 | One role per user (UNIQUE constraint on user_id) | Simple and clean for now; constraint dropped if multi-role is needed later |
+| Sept 7, 2026 | Materials buy list pulls live HD stock and aisle data | Same API used for live pricing (RapidAPI) returns stock status and location — no additional integration needed |
 
 ---
 
