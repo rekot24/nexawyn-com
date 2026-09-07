@@ -549,6 +549,18 @@ operable with gloves on, phone in one hand, standing in a driveway.
   whether a field is needed now vs. optional/later.
 - **Confirmation over correction** — make destructive actions hard to do by accident.
 
+- **Flagged notes** work the same way. Any note can be flagged as critical, which 
+pins it to the job card in the schedule view:
+
+- **Job-level flags** — specific to this visit. Visible on the job card until 
+  the job is closed.
+- **Customer-level flags** — always true about this customer or property. 
+  Visible on every job card for this customer, permanently. Examples: "Dog at 
+  property," "Gate code 4491," "Never before 9am."
+
+Rule: a flagged note is never more than one glance away when a job appears 
+anywhere in the app.
+
 Intuitive design is a core product differentiator, not a polish pass done at the end.
 
 ---
@@ -670,6 +682,7 @@ job records or fragmented billing across schedule pages.
 - RLS (Row Level Security) enabled at project level
 - `storage_url` on job_photos stores a URL — file lives in storage (Supabase Storage now, R2 at scale). Schema never changes when storage backend changes.
 - `operator_settings` row auto-created on first login with all defaults — app never needs to handle a missing row
+- `customers.notes` supports flagged entries — a `pinned_note` field surfaces on every job card for that customer. Job-level flagged notes live on `jobs` as a `flagged_note` field — visible on the job card until the job closes.
 
 ### Seeded Data
 Chart of accounts pre-loaded:
