@@ -57,21 +57,25 @@ Key files and what each one does — one line each. Update as the project grows.
 
 ## Tried and rejected
 
-*(nothing yet — add entries here as approaches are abandoned and why)*
+- 2026-09-07 — Imported logger into SettingsContext before logger was initialized — caused silent render failure with blank screen; removed logger imports from SettingsContext until a clean initialization order is established
 
 ## Current state
 
-- Working: Supabase connection confirmed, Phase 1 schema (15 tables) live in Supabase
-- In progress: Phase 2 setup — standards compliance, pre-build scaffold
-- Known broken: nothing
+- Working: Supabase connected, operator_settings loading, full scaffold wired and confirmed
+- In progress: Phase 2 feature build — job list view is next
+- Known broken: logger.js not yet wired back into SettingsContext (simplified version in place)
 
 ## Session log
 
 ### 2026-09-07
-- Introduced dev-standards repo to project; web-app-framework.md adopted as the reference
-- Full audit of repo against dev-standards completed — deviations documented
-- Standards compliance items 1–5 resolved: supabase.js moved to env vars, CLAUDE.md created, README replaced, ROADMAP.md created
-- Still needed before Phase 2 feature build: operator_settings + job_photos tables in Supabase, folder structure, constants, logger.js, useSettings, useFeatureFlags, ErrorBoundary
+- Introduced dev-standards repo; web-app-framework.md adopted as the reference for this project
+- Full audit of repo against dev-standards completed — 13 deviations documented
+- Standards compliance items 1–5 resolved: credentials moved to env vars, CLAUDE.md created, README replaced, ROADMAP.md created
+- Rebuilt entire Phase 1 schema with UUID IDs throughout (was bigint) — all 17 tables plus app_logs
+- Added GRANT ALL to anon + authenticated roles — required for SQL-created tables; added to dev-standards
+- Wired full Phase 2 scaffold: SettingsContext, useSettings, useFeatureFlags, logger.js, ErrorBoundary, constants/index.js, constants/jobStatuses.js
+- RLS temporarily disabled on all tables for dev build phase — tracked in ROADMAP.md known issues
+- App confirmed working: Business, Plan, and Supabase connection all rendering correctly
 
 ### 2026-09-06
 - Platform named — Nexawyn; domain registered — nexawyn.com (Hostinger)
