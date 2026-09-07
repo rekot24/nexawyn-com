@@ -634,7 +634,7 @@ job records or fragmented billing across schedule pages.
 **Instance:** us-east-2, 14g.nano
 **Status:** Healthy
 
-### Tables (17 total — Phase 1: 15 built Sept 6, 2026 | Phase 2 additions: 2)
+### Tables (21 total — Phase 1: 15 built Sept 6, 2026 | Phase 2 additions: 6)
 
 | Table | Purpose | Phase |
 |-------|---------|-------|
@@ -653,11 +653,12 @@ job records or fragmented billing across schedule pages.
 | `entries` | Double-entry accounting transactions | 1 ✅ |
 | `hd_purchases` | Home Depot Pro Xtra sync records | 1 ✅ |
 | `job_status_history` | Full audit trail of every status change | 1 ✅ |
-| `job_photos` | Photo records (URL + metadata + context) | 2 — add before Phase 2 build |
-| `operator_settings` | Settings store: preferences, feature flags, plan tier | 2 — add before Phase 2 build |
-| `users` | Operator and technician accounts | 2 — add before Phase 2 build |
-| `user_roles` | Role assignments per user (owner, admin, technician) | 2 — add before Phase 2 build |
-| `schedule_events` | Time blocks pointing to jobs — supports multi-day jobs | 2 — add before Phase 2 build |
+| `job_photos` | Photo records (URL + metadata + context) | 2 ✅ |
+| `operator_settings` | Settings store: preferences, feature flags, plan tier | 2 ✅ |
+| `app_logs` | Debug and event logging | 2 ✅ |
+| `users` | Operator and technician accounts (linked to Supabase Auth) | 2 ✅ |
+| `user_roles` | Role assignments per user (owner, admin, technician) | 2 ✅ |
+| `schedule_events` | Time blocks pointing to jobs — supports multi-day jobs | 2 ✅ |
 
 ### Key Design Decisions
 - `external_id UNIQUE` on entries — prevents duplicate imports from any source
@@ -881,6 +882,9 @@ At scale, aggregate data across thousands of operators becomes a product in itse
 | Sept 7, 2026 | Settings store as first-class backbone component | All configurable values in database; app reads at runtime; operator controls without code deploys; enables plan-tier gating at SaaS launch |
 | Sept 7, 2026 | Feature flags for every module | No feature runs unconditionally; enables safe partial rollout; plan-tier gating built in from day one |
 | Sept 7, 2026 | dev-standards updated to include web stack | All architectural patterns documented in Rekot24/dev-standards; web-app-framework.md is the reference for this project |
+| Sept 7, 2026 | Jobs and schedule_events are separate tables | Billing and job context live on jobs; schedule_events are time blocks with a job_id FK — solves HouseCallPro multi-day job fragmentation |
+| Sept 7, 2026 | Role-based permissions in schema from day one | user_roles table built in Phase 2; features hidden (not just disabled) for unauthorized roles; solo operator = owner role with full access |
+| Sept 7, 2026 | One role per user (UNIQUE constraint on user_id) | Simple and clean for now; constraint dropped if multi-role is needed later |
 
 ---
 
@@ -918,10 +922,10 @@ nexawyn/
 - [x] Install Supabase JS client
 - [x] Connect app to Supabase (connection confirmed)
 - [x] Update dev-standards repo with web stack framework
-- [ ] Add `job_photos` table to Supabase schema
-- [ ] Add `operator_settings` table to Supabase schema
-- [ ] Add `users` and `user_roles` tables to Supabase schema
-- [ ] Add `schedule_events` table to Supabase schema
+- [x] Add `job_photos` table to Supabase schema
+- [x] Add `operator_settings` table to Supabase schema
+- [x] Add `users` and `user_roles` tables to Supabase schema
+- [x] Add `schedule_events` table to Supabase schema
 - [ ] Wire SettingsContext and useSettings at app root
 - [ ] Wire useFeatureFlags hook
 - [ ] Wire logger.js to Supabase
@@ -931,4 +935,4 @@ nexawyn/
 
 ---
 
-*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 7, 2026 — Photo handling and settings store architecture added.*
+*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 7, 2026 — UX philosophy, role-based permissions, job/schedule data model, and Phase 2 schema additions complete.*

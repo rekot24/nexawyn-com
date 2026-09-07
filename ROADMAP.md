@@ -28,8 +28,12 @@ Living document. Completed items stay checked — history matters.
 - [x] README.md written
 - [x] ROADMAP.md created
 - [x] Credentials moved to env vars (supabase.js)
-- [ ] Add `job_photos` table to Supabase
-- [ ] Add `operator_settings` table to Supabase
+- [x] Add `job_photos` table to Supabase
+- [x] Add `operator_settings` table to Supabase
+- [x] Add `app_logs` table to Supabase
+- [x] Add `users` and `user_roles` tables to Supabase
+- [x] Add `schedule_events` table to Supabase
+- [x] Phase 2 schema saved — schema/phase2-additions.sql
 - [ ] Create folder structure: src/constants/, src/context/, src/hooks/, src/styles/
 - [ ] src/constants/index.js — timing defaults, limits, format strings
 - [ ] src/constants/jobStatuses.js — all 11 job status strings
@@ -38,6 +42,8 @@ Living document. Completed items stay checked — history matters.
 - [ ] src/hooks/useFeatureFlags.js — feature flag hook
 - [ ] src/context/SettingsContext.jsx — wired at app root
 - [ ] src/components/ErrorBoundary.jsx — wired at app root
+- [ ] Role-based permission checks wired into app (useRole hook)
+- [ ] UX design pass — status-driven layout, large tap targets, labeled actions
 
 ### Feature build
 - [ ] Job list view — organized by status
@@ -101,9 +107,9 @@ Living document. Completed items stay checked — history matters.
 
 ## Known issues / tech debt
 
-- `operator_settings` table not yet created — required before any Phase 2 feature build
-- `job_photos` table not yet created — required before Phase 2 photo feature
 - RLS disabled on all tables for dev build — must re-enable with proper auth-based policies before any real data or SaaS launch (Phase 2 prerequisite)
+- `operator_settings.operator_id` FK to users exists but no user is linked yet — wire when Supabase Auth is live
+- `job_status_history.changed_by` and `job_photos.uploaded_by` FKs to users exist but unpopulated until auth is wired
 
 ## Ideas to revisit
 
