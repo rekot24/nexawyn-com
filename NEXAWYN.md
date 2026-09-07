@@ -549,8 +549,23 @@ operable with gloves on, phone in one hand, standing in a driveway.
   whether a field is needed now vs. optional/later.
 - **Confirmation over correction** — make destructive actions hard to do by accident.
 
-- **Flagged notes** work the same way. Any note can be flagged as critical, which 
-pins it to the job card in the schedule view:
+  ### Contextual Alerts
+  Notifications and messages surface where the relevant job is — not only in a 
+  separate inbox. If a customer sends a message, it appears as an inline alert 
+  on their job card in the schedule view, showing a preview of the message.
+
+  This prevents the HouseCallPro failure mode: a red badge on a bottom tab 
+  that's easy to miss, with no visual connection to the job it affects.
+
+  The app also has a dedicated Communications Center — a full inbox view across 
+  all customers and jobs — accessible from the main nav. The contextual alert 
+  gets your attention; the Communications Center gives you the full picture when 
+  you want it.
+
+  Rule: anything that requires operator awareness before arriving at a job must 
+  be visible on the job card, not buried in a separate screen.
+  - **Flagged notes** work the same way. Any note can be flagged as critical, which 
+  pins it to the job card in the schedule view:
 
 - **Job-level flags** — specific to this visit. Visible on the job card until 
   the job is closed.
