@@ -751,6 +751,62 @@ Flag clears when the updated quote is sent.
 
 ---
 
+### 18. Job Close-Out Workflow
+
+Close-out is gated behind a checklist. "Mark Complete" does not activate until 
+the checklist is cleared. This builds consistent habits and protects the 
+operator from leaving a job with missing documentation or uncollected payment.
+
+**Static close-out checklist (every job):**
+- [ ] Before/site condition photos taken
+- [ ] Completion photos taken
+- [ ] Site cleaned up — no debris or tools left behind
+- [ ] Customer walkthrough done
+- [ ] Ask for Google review (QR code shown on screen)
+- [ ] Payment collected or invoice sent
+
+**Intelligent checklist (job-type specific):**
+Over time, the system learns close-out steps specific to each job type based 
+on the template used. Steps are suggested automatically and refined as the 
+operator adds or removes them across completed jobs. Same self-calibrating 
+intelligence as quote templates — gets smarter with use.
+
+Example additions by job type:
+- Faucet replacement → "Run water 2 minutes — confirm no leaks"
+- Drywall patch → "Confirm texture match approved by customer"
+- Electrical work → "Test all switches and outlets in affected area"
+
+**Google Review QR code:**
+When the checklist is complete and "Mark Complete" is tapped, a QR code 
+appears on screen linking directly to the operator's Google Business review 
+page. Operator hands phone to customer — they scan and review on the spot. 
+QR code also appears on the invoice (digital and printed) for customers 
+paying later.
+
+**Payment close-out — three paths:**
+
+| Option | What happens |
+|--------|-------------|
+| Paying now — Stripe | Payment link opens on screen or fires via SMS; job moves to `invoice_paid` on completion |
+| Paying by check | Payment logged as received; check number recorded; invoice marked paid |
+| Send invoice — pay later | SMS fires with payment link; job moves to `invoice_sent`; follow-up triggers activate |
+
+All three paths close the job record cleanly with no ambiguity about payment status.
+
+**Review request automation:**
+After `invoice_paid` is confirmed (any payment method), an automated SMS fires 
+after a configurable delay (default: 1 hour):
+"Hi {customer_name}, thanks so much for the work today! If you have a moment, 
+a Google review means the world to a small business. [link]"
+
+Settings:
+- `review_request_enabled` — toggle on/off
+- `review_request_delay_hrs` — delay after payment confirmed (default: 1hr)
+- `review_request_sms_template` — editable message wording
+- `google_review_url` — operator's Google Business review link (set once in settings)
+
+---
+
 ## Technology Stack
 
 | Layer | Tool | Cost |

@@ -82,3 +82,10 @@ ALTER TABLE operator_settings
 -- Material buy list feature settings
 ALTER TABLE operator_settings
   ADD COLUMN local_hd_store_id TEXT;
+
+-- Job flow completion review request feature settings
+ALTER TABLE operator_settings
+  ADD COLUMN review_request_enabled      BOOLEAN DEFAULT true,
+  ADD COLUMN review_request_delay_hrs    INTEGER DEFAULT 1,
+  ADD COLUMN review_request_sms_template TEXT,
+  ADD COLUMN google_review_url           TEXT;
