@@ -579,7 +579,7 @@ As the platform grows, features can be toggled per role. Examples:
 
 ---
 
-## 15. Job & Schedule Data Model
+### 15. Job & Schedule Data Model
 
 ### Core principle: Jobs and schedule events are separate entities
 
@@ -655,6 +655,9 @@ job records or fragmented billing across schedule pages.
 | `job_status_history` | Full audit trail of every status change | 1 ✅ |
 | `job_photos` | Photo records (URL + metadata + context) | 2 — add before Phase 2 build |
 | `operator_settings` | Settings store: preferences, feature flags, plan tier | 2 — add before Phase 2 build |
+| `users` | Operator and technician accounts | 2 — add before Phase 2 build |
+| `user_roles` | Role assignments per user (owner, admin, technician) | 2 — add before Phase 2 build |
+| `schedule_events` | Time blocks pointing to jobs — supports multi-day jobs | 2 — add before Phase 2 build |
 
 ### Key Design Decisions
 - `external_id UNIQUE` on entries — prevents duplicate imports from any source
@@ -917,6 +920,8 @@ nexawyn/
 - [x] Update dev-standards repo with web stack framework
 - [ ] Add `job_photos` table to Supabase schema
 - [ ] Add `operator_settings` table to Supabase schema
+- [ ] Add `users` and `user_roles` tables to Supabase schema
+- [ ] Add `schedule_events` table to Supabase schema
 - [ ] Wire SettingsContext and useSettings at app root
 - [ ] Wire useFeatureFlags hook
 - [ ] Wire logger.js to Supabase
