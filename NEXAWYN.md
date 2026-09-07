@@ -578,6 +578,30 @@ anywhere in the app.
 
 Intuitive design is a core product differentiator, not a polish pass done at the end.
 
+### On My Way
+Tapping "On My Way" on a job card does three things simultaneously:
+1. Sends the customer an SMS with an ETA pulled from Google Maps drive time
+2. Opens Maps with the job address loaded and navigation started
+3. Logs the communication against the job record automatically
+
+The ETA is calculated at the moment of tap — so it reflects actual current 
+drive time, not a guess.
+
+**The stop-first rule:** "On My Way" is tapped when you are actually leaving 
+for the job site — not before a supply run or any other stop. If you need to 
+make a stop first, navigate there separately. Tap "On My Way" when you leave 
+that stop headed to the customer. The ETA will be accurate.
+
+**Settings (all in operator_settings):**
+- `on_my_way_enabled` — turn the feature on/off entirely
+- `on_my_way_open_maps` — auto-launch navigation when tapped (default: on)
+- `on_my_way_include_eta` — include drive time estimate in the SMS (default: on)
+- `on_my_way_sms_template` — editable message wording; supports 
+  `{customer_name}` and `{eta}` variables
+
+Default message: "Hi {customer_name}, I'm on my way! See you in about 
+{eta}. — Joshua"
+
 ---
 
 ### 14. Role-Based Permissions

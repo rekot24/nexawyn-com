@@ -71,3 +71,10 @@ INSERT INTO user_roles (user_id, role)
 -- Grant access to new tables
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+
+-- On My Way feature settings
+ALTER TABLE operator_settings
+  ADD COLUMN on_my_way_enabled       BOOLEAN DEFAULT true,
+  ADD COLUMN on_my_way_open_maps     BOOLEAN DEFAULT true,
+  ADD COLUMN on_my_way_include_eta   BOOLEAN DEFAULT true,
+  ADD COLUMN on_my_way_sms_template  TEXT DEFAULT 'Hi {customer_name}, I''m on my way! See you in about {eta}. — Joshua';
