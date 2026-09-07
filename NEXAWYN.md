@@ -532,6 +532,76 @@ Marketing site stays lean, static, SEO-optimized (Jamstack). Portal and app are 
 
 ---
 
+### 13. UX Philosophy & Design Principles
+
+The target user is a non-technical field worker — old-school handyman types who are
+not comfortable with technology. The app must be learnable with zero training and
+operable with gloves on, phone in one hand, standing in a driveway.
+
+### Core principles
+- **Big targets, obvious actions** — the most common next action should always be
+  the most prominent thing on screen. No hunting through menus.
+- **Status-driven UI** — job status IS the navigation. If a job is "En Route," the
+  screen surfaces "Mark Arrived." The user should never have to think about what to
+  do next.
+- **Words, not icons alone** — label everything. "New Job" not ➕. "Take Photo" not 📷.
+- **Minimal data entry** — every required field is friction. Ruthlessly question
+  whether a field is needed now vs. optional/later.
+- **Confirmation over correction** — make destructive actions hard to do by accident.
+
+Intuitive design is a core product differentiator, not a polish pass done at the end.
+
+---
+
+### 14. Role-Based Permissions
+
+The platform is designed for solo operators today but multi-user teams from day one.
+Permissions are role-based and assigned per user. Solo operator = one user with all roles.
+
+### Planned roles (initial)
+| Role | What they can do |
+|------|-----------------|
+| Owner | Everything — full access |
+| Admin | Everything except billing/account settings |
+| Technician | View assigned jobs, update job status, take photos, add field notes |
+
+### Design rules
+- Role permissions must be in the schema from day one — this touches nearly every table
+- Features not permitted for a role are hidden entirely, not just disabled
+- A solo operator with all roles sees all features with no friction
+
+### Feature store concept
+As the platform grows, features can be toggled per role. Examples:
+- Quoting / estimating → Owner or Admin only
+- Invoicing → Owner or Admin only
+- Schedule visibility → scoped to own assignments for Technician
+- End-of-day admin → Owner or Admin only
+
+---
+
+## 15. Job & Schedule Data Model
+
+### Core principle: Jobs and schedule events are separate entities
+
+A job is the contract — it holds the customer, scope, total value, photos, notes,
+and billing. It is the single source of truth.
+
+A schedule event is a time block — it points to a job and says "we are working on
+this job on this day, these hours, this person." Many events can point to one job.
+
+This avoids the HouseCallPro anti-pattern where multi-day jobs require duplicated
+job records or fragmented billing across schedule pages.
+
+### Relationship
+
+- `schedule_events` table has a `job_id` foreign key
+- Invoice and billing value live on the `jobs` record — never on a schedule event
+- Photos, notes, and job history live on `jobs` — accessible from any schedule event
+  that references that job
+- A multi-day job = one job record + multiple schedule_events rows
+
+---
+
 ## Technology Stack
 
 | Layer | Tool | Cost |
