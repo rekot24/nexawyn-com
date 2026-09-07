@@ -324,3 +324,21 @@ INSERT INTO accounts (name, type, code, description) VALUES
 -- STEP 4: Seed default operator settings row
 -- ────────────────────────────────────────
 INSERT INTO operator_settings (business_name) VALUES ('Skilled Handyman Services');
+
+-- ────────────────────────────────────────
+-- STEP 5: Create app_Logs table for debug logging
+-- ────────────────────────────────────────
+
+CREATE TABLE app_logs (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  level     TEXT NOT NULL,   -- debug | info | warning | error
+  module    TEXT NOT NULL,
+  message   TEXT NOT NULL,
+  meta      JSONB,
+  timestamp TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_app_logs_level  ON app_logs(level);
+CREATE INDEX idx_app_logs_module ON app_logs(module);
+CREATE INDEX idx_app_logs_ts     ON app_logs(timestamp);
