@@ -103,7 +103,7 @@ Living document. Completed items stay checked — history matters.
 
 - `operator_settings` table not yet created — required before any Phase 2 feature build
 - `job_photos` table not yet created — required before Phase 2 photo feature
-- RLS temporarily permissive on dev tables — must re-enable with proper auth policies before any real data
+- RLS disabled on all tables for dev build — must re-enable with proper auth-based policies before any real data or SaaS launch (Phase 2 prerequisite)
 
 ## Ideas to revisit
 
