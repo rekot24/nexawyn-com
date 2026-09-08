@@ -1,7 +1,7 @@
 # Nexawyn — Working Document
 **Domain:** nexawyn.com ✅ Registered — Hostinger  
 **Started:** September 6, 2026  
-**Status:** Phase 1 Complete → Phase 2 Starting  
+**Status:** Phase 1 & 2 Schema Complete → App Build In Progress  
 **Owner:** Joshua  
 **GitHub:** Rekot24  
 
@@ -73,6 +73,9 @@ System gets smarter with every job
 
 No dead zones. No manual data entry. No disconnected tools.
 
+**Core product principle: Nexawyn knows what should happen next.**
+Every feature decision should be tested against this. The value of Nexawyn comes from the connections between modules — not simply from having many modules.
+
 ---
 
 ## Core Modules
@@ -108,12 +111,14 @@ inquiry_received
 → quote_declined        ← follow-up logic
 → job_scheduled
 → job_in_progress
+→ job_paused            ← pause flow with required reason
 → job_complete
 → invoice_sent
 → invoice_paid          ← loop closed
 ```
 
 Every status change is logged in `job_status_history` — full audit trail forever.
+All status transitions go through a single app service — no component directly mutates job status.
 
 **Key insight:** The status engine is what HouseCallPro gets wrong. After the site visit, HCP goes silent. Nexawyn starts working harder.
 
@@ -169,7 +174,7 @@ Template: Bathroom Faucet Replacement
 
 Your past jobs train your future quotes. The system gets smarter every week.
 
-**Database tables:** `job_templates`, `template_materials`, `template_labor`, `job_materials`
+**Database tables:** `job_templates`, `template_materials`, `template_labor`, `job_materials`, `quotes`, `quote_line_items`
 
 ---
 
@@ -283,39 +288,11 @@ Served via Cloudflare CDN to anyone authorized to view it
 - For Phase 2 (single operator): Supabase Storage is acceptable as a starting point
 - For SaaS launch: migrate to R2 — schema change is zero because the `job_photos` table stores a `storage_url` field, not the file itself
 
-**Database table:**
-```sql
-CREATE TABLE job_photos (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id           UUID REFERENCES jobs(id) ON DELETE CASCADE,
-  storage_url      TEXT NOT NULL,          -- R2 URL (or Supabase Storage URL in early phase)
-  thumbnail_url    TEXT,                   -- smaller version for gallery views
-  category         TEXT NOT NULL,          -- assessment | in_progress | completion | damage | document
-  status_at_capture TEXT,                  -- job status when photo was taken
-  caption          TEXT,                   -- optional operator note
-  geo_lat          NUMERIC(10,7),          -- GPS latitude at capture
-  geo_lon          NUMERIC(10,7),          -- GPS longitude at capture
-  taken_at         TIMESTAMPTZ NOT NULL,   -- device timestamp at capture
-  uploaded_at      TIMESTAMPTZ DEFAULT now(),
-  uploaded_by      UUID,                   -- operator_id for multi-user future
-  file_size_bytes  INTEGER,
-  mime_type        TEXT DEFAULT 'image/jpeg'
-);
-
-CREATE INDEX idx_job_photos_job    ON job_photos(job_id, taken_at);
-CREATE INDEX idx_job_photos_cat    ON job_photos(job_id, category);
-```
-
-**Access control (who sees what):**
-- Operator sees all photos for all their jobs — always
-- Customer sees `assessment` and `completion` photos only — surfaced in quote view and invoice view
-- Insurance export — all photos for a job with timestamps, exported as a timestamped PDF report
-
 **Database table:** `job_photos`
 
 ---
 
-### 7. Settings Store & Feature Flags
+### 7. Business Settings & Feature Flags
 The application-wide configuration layer. Every value that could change — timing defaults, business preferences, feature availability, plan tier access — lives here. Nothing meaningful is hardcoded in the app.
 
 **Why this is a backbone component (not an afterthought):**
@@ -323,7 +300,7 @@ Without a settings store, changing a default requires a code deploy. With a sett
 
 **Three tiers of configuration:**
 
-**Tier 1 — Operator preferences** (operator-controlled via settings UI):
+**Tier 1 — Business preferences** (operator-controlled via settings UI):
 - Business name, logo, contact info
 - Default labor rate and markup percentage
 - Quote follow-up timing (default: 24hr first SMS, 48hr alert)
@@ -332,8 +309,10 @@ Without a settings store, changing a default requires a code deploy. With a sett
 - Timezone
 - Notification preferences
 
-**Tier 2 — Feature flags** (operator-visible; plan-gated in SaaS phase):
+**Tier 2 — Feature flags** (business-visible; plan-gated in SaaS phase):
 Every feature in the platform has a database-driven on/off switch. The feature checks its flag before rendering. If the flag is off, the feature doesn't appear — not disabled, just absent.
+
+Note: Feature flags are separate from permissions and plan entitlements. Flag = capability available. Permission = this user's role may use it. Plan entitlement = business has purchased it. Never use feature flags as an authorization mechanism.
 
 | Flag | Default | Notes |
 |------|---------|-------|
@@ -350,52 +329,12 @@ Every feature in the platform has a database-driven on/off switch. The feature c
 - Plan tier is checked alongside feature flags — a feature must be both enabled AND unlocked for the operator's plan
 - Changing a plan tier in the database instantly changes what the operator sees with no code deploy
 
-**Database table:**
-```sql
-CREATE TABLE operator_settings (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  operator_id     UUID REFERENCES operators(id) ON DELETE CASCADE,
-
-  -- Tier 1: Operator preferences
-  business_name         TEXT,
-  labor_rate_default    NUMERIC(10,2) DEFAULT 75.00,
-  markup_default        NUMERIC(5,4)  DEFAULT 0.20,
-  quote_followup_hrs    INTEGER       DEFAULT 24,
-  quote_alert_hrs       INTEGER       DEFAULT 48,
-  invoice_prefix        TEXT          DEFAULT 'NXW',
-  timezone              TEXT          DEFAULT 'America/Denver',
-  sms_template_quote    TEXT,
-  sms_template_followup TEXT,
-  sms_template_reminder TEXT,
-
-  -- Tier 2: Feature flags
-  photos_enabled          BOOLEAN DEFAULT true,
-  hd_sync_enabled         BOOLEAN DEFAULT false,
-  parts_tracking_enabled  BOOLEAN DEFAULT false,
-  sms_followup_enabled    BOOLEAN DEFAULT true,
-  bank_link_enabled       BOOLEAN DEFAULT false,
-  accounting_enabled      BOOLEAN DEFAULT true,
-  debug_enabled           BOOLEAN DEFAULT false,
-
-  -- Debug sub-flags
-  debug_log_state_changes  BOOLEAN DEFAULT true,
-  debug_log_api_calls      BOOLEAN DEFAULT false,
-  debug_log_settings_reads BOOLEAN DEFAULT false,
-  debug_log_render_cycles  BOOLEAN DEFAULT false,
-
-  -- Tier 3: Plan config
-  plan_tier     TEXT DEFAULT 'solo',
-
-  updated_at    TIMESTAMPTZ DEFAULT now()
-);
-```
-
 **How it works in the React app:**
-Settings are fetched once on app load, stored in React Context (`SettingsContext`), and available to every component without prop drilling. When a setting changes in the UI, it writes to Supabase and updates the context — every component re-renders with the new value instantly. No page reload. No restart.
+Settings are fetched once on app load by active `business_id` — never by first row. Stored in React Context (`SettingsContext`), available to every component without prop drilling. When a setting changes in the UI, it writes to Supabase and updates the context — every component re-renders with the new value instantly. No page reload. No restart.
 
 See `snippets/useSettings.js` and `snippets/useFeatureFlags.js` in the dev-standards repo for the full implementation.
 
-**Database table:** `operator_settings`
+**Database table:** `business_settings`
 
 ---
 
@@ -407,7 +346,7 @@ See `snippets/useSettings.js` and `snippets/useFeatureFlags.js` in the dev-stand
 - Stripe webhook fires on payment → job status moves to `invoice_paid` → accounting entry created automatically
 - No manual steps anywhere in this flow
 
-**Database tables:** `invoices`, entries created in `entries` table
+**Database tables:** `invoices`, `invoice_line_items`, entries created in `entries` table
 
 ---
 
@@ -421,9 +360,9 @@ Every customer touchpoint automated but personal-feeling. All messages configura
 - 24hr follow-up if quote not approved
 - Approval confirmation
 - Job reminder (day before)
-- "On my way" message
+- "On my way" message with ETA
 - Invoice link after job complete
-- Review request after payment confirmed
+- Review request after payment confirmed (configurable delay, default 1hr)
 
 **Database table:** `communications` (type, direction, body, status, sent_at)
 
@@ -431,6 +370,8 @@ Every customer touchpoint automated but personal-feeling. All messages configura
 
 ### 10. Accounting Engine
 Built on double-entry bookkeeping — the standard structure used by every accounting system since 1494, implemented directly in Supabase PostgreSQL.
+
+**Near-term goal:** Make external accounting software unnecessary for day-to-day operations. Job profitability, revenue tracking, and material cost tracking come first. Full reconciliation, equity accounts, and period controls are future additions.
 
 **How entries are created (automatically):**
 - Stripe payment received → income entry created
@@ -534,49 +475,33 @@ Marketing site stays lean, static, SEO-optimized (Jamstack). Portal and app are 
 
 ### 13. UX Philosophy & Design Principles
 
-The target user is a non-technical field worker — old-school handyman types who are
-not comfortable with technology. The app must be learnable with zero training and
-operable with gloves on, phone in one hand, standing in a driveway.
+The target user is a non-technical field worker — old-school handyman types who are not comfortable with technology. The app must be learnable with zero training and operable with gloves on, phone in one hand, standing in a driveway.
+
+**Core product principle: Nexawyn knows what should happen next.** The UI always surfaces the next logical action — the user should never have to think about what to do.
 
 ### Core principles
-- **Big targets, obvious actions** — the most common next action should always be
-  the most prominent thing on screen. No hunting through menus.
-- **Status-driven UI** — job status IS the navigation. If a job is "En Route," the
-  screen surfaces "Mark Arrived." The user should never have to think about what to
-  do next.
+- **Big targets, obvious actions** — the most common next action should always be the most prominent thing on screen. No hunting through menus.
+- **Status-driven UI** — job status IS the navigation. If a job is "En Route," the screen surfaces "Mark Arrived." The user should never have to think about what to do next.
 - **Words, not icons alone** — label everything. "New Job" not ➕. "Take Photo" not 📷.
-- **Minimal data entry** — every required field is friction. Ruthlessly question
-  whether a field is needed now vs. optional/later.
+- **Minimal data entry** — every required field is friction. Ruthlessly question whether a field is needed now vs. optional/later.
 - **Confirmation over correction** — make destructive actions hard to do by accident.
 
-  ### Contextual Alerts
-  Notifications and messages surface where the relevant job is — not only in a 
-  separate inbox. If a customer sends a message, it appears as an inline alert 
-  on their job card in the schedule view, showing a preview of the message.
+### Contextual Alerts
+Notifications and messages surface where the relevant job is — not only in a separate inbox. If a customer sends a message, it appears as an inline alert on their job card in the schedule view, showing a preview of the message.
 
-  This prevents the HouseCallPro failure mode: a red badge on a bottom tab 
-  that's easy to miss, with no visual connection to the job it affects.
+This prevents the HouseCallPro failure mode: a red badge on a bottom tab that's easy to miss, with no visual connection to the job it affects.
 
-  The app also has a dedicated Communications Center — a full inbox view across 
-  all customers and jobs — accessible from the main nav. The contextual alert 
-  gets your attention; the Communications Center gives you the full picture when 
-  you want it.
+The app also has a dedicated Communications Center — a full inbox view across all customers and jobs — accessible from the main nav. The contextual alert gets your attention; the Communications Center gives you the full picture when you want it.
 
-  Rule: anything that requires operator awareness before arriving at a job must 
-  be visible on the job card, not buried in a separate screen.
-  - **Flagged notes** work the same way. Any note can be flagged as critical, which 
-  pins it to the job card in the schedule view:
+Rule: anything that requires operator awareness before arriving at a job must be visible on the job card, not buried in a separate screen.
 
-- **Job-level flags** — specific to this visit. Visible on the job card until 
-  the job is closed.
-- **Customer-level flags** — always true about this customer or property. 
-  Visible on every job card for this customer, permanently. Examples: "Dog at 
-  property," "Gate code 4491," "Never before 9am."
+### Flagged Notes
+Any note can be flagged as critical, which pins it to the job card in the schedule view:
 
-Rule: a flagged note is never more than one glance away when a job appears 
-anywhere in the app.
+- **Job-level flags** — specific to this visit. Visible on the job card until the job is closed.
+- **Customer-level flags** — always true about this customer or property. Visible on every job card for this customer, permanently. Examples: "Dog at property," "Gate code 4491," "Never before 9am."
 
-Intuitive design is a core product differentiator, not a polish pass done at the end.
+Rule: a flagged note is never more than one glance away when a job appears anywhere in the app.
 
 ### On My Way
 Tapping "On My Way" on a job card does three things simultaneously:
@@ -584,30 +509,27 @@ Tapping "On My Way" on a job card does three things simultaneously:
 2. Opens Maps with the job address loaded and navigation started
 3. Logs the communication against the job record automatically
 
-The ETA is calculated at the moment of tap — so it reflects actual current 
-drive time, not a guess.
+The ETA is calculated at the moment of tap — so it reflects actual current drive time, not a guess.
 
-**The stop-first rule:** "On My Way" is tapped when you are actually leaving 
-for the job site — not before a supply run or any other stop. If you need to 
-make a stop first, navigate there separately. Tap "On My Way" when you leave 
-that stop headed to the customer. The ETA will be accurate.
+**The stop-first rule:** "On My Way" is tapped when you are actually leaving for the job site — not before a supply run or any other stop. If you need to make a stop first, navigate there separately. Tap "On My Way" when you leave that stop headed to the customer. The ETA will be accurate.
 
-**Settings (all in operator_settings):**
+**Settings (all in business_settings):**
 - `on_my_way_enabled` — turn the feature on/off entirely
 - `on_my_way_open_maps` — auto-launch navigation when tapped (default: on)
 - `on_my_way_include_eta` — include drive time estimate in the SMS (default: on)
-- `on_my_way_sms_template` — editable message wording; supports 
-  `{customer_name}` and `{eta}` variables
+- `on_my_way_sms_template` — editable message wording; supports `{customer_name}` and `{eta}` variables
 
-Default message: "Hi {customer_name}, I'm on my way! See you in about 
-{eta}. — Joshua"
+Default message: "Hi {customer_name}, I'm on my way! See you in about {eta}. — Joshua"
+
+Intuitive design is a core product differentiator, not a polish pass done at the end.
 
 ---
 
 ### 14. Role-Based Permissions
 
-The platform is designed for solo operators today but multi-user teams from day one.
-Permissions are role-based and assigned per user. Solo operator = one user with all roles.
+The platform is designed for solo operators today but multi-user teams from day one. Permissions are role-based and assigned per user via `business_members`. Solo operator = one user with owner role.
+
+Role assignment is business-scoped — a user's role is tied to a specific business, not their account globally. One user can belong to multiple businesses with different roles in each.
 
 ### Planned roles (initial)
 | Role | What they can do |
@@ -617,9 +539,10 @@ Permissions are role-based and assigned per user. Solo operator = one user with 
 | Technician | View assigned jobs, update job status, take photos, add field notes |
 
 ### Design rules
-- Role permissions must be in the schema from day one — this touches nearly every table
 - Features not permitted for a role are hidden entirely, not just disabled
-- A solo operator with all roles sees all features with no friction
+- Permission rules are centralized in `useRole` hook and enforced server-side via RLS — UI hiding alone is not security
+- A solo operator with owner role sees all features with no friction
+- Feature flags (capability available), plan entitlements (purchased), and permissions (role may act) are three distinct concepts — never conflated
 
 ### Feature store concept
 As the platform grows, features can be toggled per role. Examples:
@@ -627,6 +550,7 @@ As the platform grows, features can be toggled per role. Examples:
 - Invoicing → Owner or Admin only
 - Schedule visibility → scoped to own assignments for Technician
 - End-of-day admin → Owner or Admin only
+- Materials pricing → hidden from Technician role
 
 ---
 
@@ -634,29 +558,34 @@ As the platform grows, features can be toggled per role. Examples:
 
 ### Core principle: Jobs and schedule events are separate entities
 
-A job is the contract — it holds the customer, scope, total value, photos, notes,
-and billing. It is the single source of truth.
+A job is the contract — it holds the customer, scope, total value, photos, notes, and billing. It is the single source of truth.
 
-A schedule event is a time block — it points to a job and says "we are working on
-this job on this day, these hours, this person." Many events can point to one job.
+A schedule event is a time block — it points to a job and says "we are working on this job on this day, these hours, this person." Many events can point to one job.
 
-This avoids the HouseCallPro anti-pattern where multi-day jobs require duplicated
-job records or fragmented billing across schedule pages.
+This avoids the HouseCallPro anti-pattern where multi-day jobs require duplicated job records or fragmented billing across schedule pages.
 
 ### Relationship
-
 - `schedule_events` table has a `job_id` foreign key
 - Invoice and billing value live on the `jobs` record — never on a schedule event
-- Photos, notes, and job history live on `jobs` — accessible from any schedule event
-  that references that job
+- Photos, notes, and job history live on `jobs` — accessible from any schedule event that references that job
 - A multi-day job = one job record + multiple schedule_events rows
+
+### Schedule event types
+| Type | When used |
+|------|-----------|
+| `assessment` | Initial site visit to evaluate scope |
+| `work` | Standard job work visit |
+| `return_visit` | Returning to complete paused or multi-day job |
+| `follow_up` | Post-job follow-up visit |
+
+### Schedule event statuses
+`scheduled` → `completed` | `cancelled` | `no_show`
 
 ---
 
 ### 16. Materials Buy List
 
-The job screen includes a Materials tab showing all parts on the job as a 
-checklist. This doubles as a buy list for pre-job supply runs.
+The job screen includes a Materials tab showing all parts on the job as a checklist. This doubles as a buy list for pre-job supply runs.
 
 **Per-item display (when HD integration is active):**
 - Item name and quantity needed
@@ -671,13 +600,10 @@ checklist. This doubles as a buy list for pre-job supply runs.
 - List persists — if you close and reopen, state is saved
 
 **Multi-job buy list:**
-When heading to Home Depot before multiple jobs, the operator can generate a 
-combined buy list across all jobs scheduled for the day. Items are grouped by 
-aisle so the trip is a single efficient pass through the store.
+When heading to Home Depot before multiple jobs, the operator can generate a combined buy list across all jobs scheduled for the day. Items are grouped by aisle so the trip is a single efficient pass through the store.
 
 **Settings:**
-- `local_hd_store_id` — operator's primary Home Depot store (set once in 
-  settings; used for stock and aisle lookups)
+- `local_hd_store_id` — operator's primary Home Depot store (set once in settings; used for stock and aisle lookups)
 
 **Role access:**
 - Owner / Admin — full materials view including costs and markup
@@ -688,14 +614,10 @@ aisle so the trip is a single efficient pass through the store.
 ### 17. On-Site Workflow & Job Interruptions
 
 **Status-driven screen shifts:**
-When "Mark Arrived" is tapped, the job moves to `job_in_progress` and the 
-screen shifts — primary actions become photo capture and job controls. 
-Pre-job prep elements fade back.
+When "Mark Arrived" is tapped, the job moves to `job_in_progress` and the screen shifts — primary actions become photo capture and job controls. Pre-job prep elements fade back.
 
 **Pause Job flow:**
-Tapping "Pause Job" prompts the operator to select a reason before leaving 
-the site. Reason is required — the job record always reflects what happened 
-and why.
+Tapping "Pause Job" prompts the operator to select a reason before leaving the site. Reason is required — the job record always reflects what happened and why.
 
 | Reason | What happens next |
 |--------|------------------|
@@ -706,56 +628,40 @@ and why.
 | Customer stopped the job | Prompts for note; flags job for follow-up; logs with timestamp |
 | Other | Free text note logged to job record with timestamp |
 
-All pause reasons log to `job_status_history` with timestamp. The job never 
-returns to blank — there is always a record of what happened and when.
+All pause reasons log to `job_status_history` with timestamp. The job never returns to blank — there is always a record of what happened and when.
 
 **Scope change flow:**
 When scope change is selected, operator first answers:
+
+```
 Is this additional work part of today's job?
 
 [ Yes — adding to current work order ]
 [ No — this is a separate job ]
+```
 
 **Yes — same work order:**
-- **Add to this job now** — opens quote editor on the current job. New line 
-  items, materials, and labor added. Updated quote sent to customer for 
-  approval before work resumes. Fully documented and approved on site.
-- **Take photos and quote later** — opens camera in scope photo mode. Operator 
-  shoots and adds a voice or text note. Job flagged as "scope addition pending" 
-  until the updated quote is built and sent.
+- **Add to this job now** — opens quote editor on the current job. New line items, materials, and labor added. Updated quote sent to customer for approval before work resumes. Fully documented and approved on site.
+- **Take photos and quote later** — opens camera in scope photo mode. Operator shoots and adds a voice or text note. Job flagged as "scope addition pending" until the updated quote is built and sent.
 
 **No — separate job:**
-Creates a new job record linked to the same customer, pre-populated with 
-customer info and property address. Drops into the assessment/quote flow for 
-the new job. The original job continues unaffected. One job, one invoice, 
-one scope — no blended work orders.
+Creates a new job record linked to the same customer, pre-populated with customer info and property address. Drops into the assessment/quote flow for the new job. The original job continues unaffected. One job, one invoice, one scope — no blended work orders.
 
-Neither path forces a decision under pressure. The operator picks what fits 
-the moment — both are fully documented.
-
-- **Add to this job now** — opens quote editor on the job. New line items, 
-  materials, and labor are added. Updated quote sent to customer for approval 
-  before work resumes. Fully documented and approved on site.
-- **Take photos and quote later** — opens camera in scope photo mode. Operator 
-  shoots what's needed and adds a voice or text note. Job is flagged as 
-  "scope addition pending" and surfaces on the home screen as a contextual 
-  alert until the quote is built and sent.
-
-Neither path forces a decision under pressure. The operator picks what fits 
-the moment — both are fully documented.
+Neither path forces a decision under pressure. The operator picks what fits the moment — both are fully documented.
 
 **Scope addition pending flag:**
-A job with an unresolved scope addition shows a contextual alert on its job 
-card everywhere it appears:
+A job with an unresolved scope addition shows a contextual alert on its job card everywhere it appears:
+```
+Miller Residence — In Progress
+⚠ Scope addition pending — quote not sent
+```
 Flag clears when the updated quote is sent.
 
 ---
 
 ### 18. Job Close-Out Workflow
 
-Close-out is gated behind a checklist. "Mark Complete" does not activate until 
-the checklist is cleared. This builds consistent habits and protects the 
-operator from leaving a job with missing documentation or uncollected payment.
+Close-out is gated behind a checklist. "Mark Complete" does not activate until the checklist is cleared. This builds consistent habits and protects the operator from leaving a job with missing documentation or uncollected payment.
 
 **Static close-out checklist (every job):**
 - [ ] Before/site condition photos taken
@@ -766,10 +672,7 @@ operator from leaving a job with missing documentation or uncollected payment.
 - [ ] Payment collected or invoice sent
 
 **Intelligent checklist (job-type specific):**
-Over time, the system learns close-out steps specific to each job type based 
-on the template used. Steps are suggested automatically and refined as the 
-operator adds or removes them across completed jobs. Same self-calibrating 
-intelligence as quote templates — gets smarter with use.
+Over time, the system learns close-out steps specific to each job type based on the template used. Steps are suggested automatically and refined as the operator adds or removes them across completed jobs. Same self-calibrating intelligence as quote templates — gets smarter with use.
 
 Example additions by job type:
 - Faucet replacement → "Run water 2 minutes — confirm no leaks"
@@ -777,11 +680,7 @@ Example additions by job type:
 - Electrical work → "Test all switches and outlets in affected area"
 
 **Google Review QR code:**
-When the checklist is complete and "Mark Complete" is tapped, a QR code 
-appears on screen linking directly to the operator's Google Business review 
-page. Operator hands phone to customer — they scan and review on the spot. 
-QR code also appears on the invoice (digital and printed) for customers 
-paying later.
+When the checklist is complete and "Mark Complete" is tapped, a QR code appears on screen linking directly to the operator's Google Business review page. Operator hands phone to customer — they scan and review on the spot. QR code also appears on the invoice (digital and printed) for customers paying later.
 
 **Payment close-out — three paths:**
 
@@ -794,12 +693,10 @@ paying later.
 All three paths close the job record cleanly with no ambiguity about payment status.
 
 **Review request automation:**
-After `invoice_paid` is confirmed (any payment method), an automated SMS fires 
-after a configurable delay (default: 1 hour):
-"Hi {customer_name}, thanks so much for the work today! If you have a moment, 
-a Google review means the world to a small business. [link]"
+After `invoice_paid` is confirmed (any payment method), an automated SMS fires after a configurable delay (default: 1 hour):
+"Hi {customer_name}, thanks so much for the work today! If you have a moment, a Google review means the world to a small business. [link]"
 
-Settings:
+Settings (all in business_settings):
 - `review_request_enabled` — toggle on/off
 - `review_request_delay_hrs` — delay after payment confirmed (default: 1hr)
 - `review_request_sms_template` — editable message wording
@@ -832,7 +729,7 @@ Settings:
 
 ## Database Schema
 
-### Status: ✅ Phase 1 Complete — All tables built and running in Supabase
+### Status: ✅ Phase 1, 2 & 3 Schema Complete — All tables built and running in Supabase
 
 **Supabase project:** Nexawyn
 **Region:** East US (Ohio)
@@ -859,16 +756,17 @@ Settings:
 | `hd_purchases` | Home Depot Pro Xtra sync records | 1 ✅ |
 | `job_status_history` | Full audit trail of every status change | 1 ✅ |
 | `job_photos` | Photo records (URL + metadata + context) | 2 ✅ |
-| `operator_settings` | Settings store: preferences, feature flags, plan tier | 2 ✅ |
+| `business_settings` | Settings store: preferences, feature flags, plan tier | 2 ✅ |
 | `app_logs` | Debug and event logging | 2 ✅ |
 | `users` | Operator and technician accounts (linked to Supabase Auth) | 2 ✅ |
-| `user_roles` | Role assignments per user (owner, admin, technician) | 2 ✅ |
 | `schedule_events` | Time blocks pointing to jobs — supports multi-day jobs | 2 ✅ |
 | `businesses` | Tenant entity — owns all operational data; enables SaaS multi-tenancy | 3 ✅ |
 | `business_members` | Users linked to businesses with a role (owner, admin, technician) | 3 ✅ |
 | `quotes` | First-class quote entity with immutable sent snapshots | 3 ✅ |
 | `quote_line_items` | Immutable line item snapshot written when quote is sent | 3 ✅ |
 | `invoice_line_items` | Immutable line item snapshot written when invoice is issued | 3 ✅ |
+
+Note: `user_roles` was built in Phase 2 and dropped in Phase 3b — superseded by `business_members`.
 
 ### Key Design Decisions
 - `external_id UNIQUE` on entries — prevents duplicate imports from any source
@@ -877,23 +775,23 @@ Settings:
 - `unit_price` locked at quote time on job_materials — independent of future price changes
 - All timestamps use `TIMESTAMPTZ` — timezone-aware
 - Indexes on all foreign keys and status/date fields for query performance
-- RLS (Row Level Security) enabled at project level
+- RLS (Row Level Security) enabled at project level — disabled temporarily for dev, re-enabled before real data
 - `storage_url` on job_photos stores a URL — file lives in storage (Supabase Storage now, R2 at scale). Schema never changes when storage backend changes.
-- `operator_settings` row auto-created on first login with all defaults — app never needs to handle a missing row
-- `customers.notes` supports flagged entries — a `pinned_note` field surfaces on every job card for that customer. Job-level flagged notes live on `jobs` as a `flagged_note` field — visible on the job card until the job closes.
-- `businesses` table added in Phase 3 — all operational data is owned by a business, not a user. Solo operator = one business, one user. Multi-tenancy is structural from day one.
-- Role assignment moved to `business_members` — roles are business-scoped, not global. `user_roles` table superseded and should be dropped before auth is wired.
+- `business_settings` row fetched by `business_id` — never by first row. Auto-created on first login with all defaults.
+- `customers.pinned_note` surfaces on every job card for that customer permanently. `jobs.flagged_note` visible on the job card until the job closes.
+- `businesses` table — all operational data is owned by a business, not a user. Solo operator = one business, one user. Multi-tenancy is structural from day one.
+- Role assignment lives in `business_members` — business-scoped, not global. One user can belong to multiple businesses with different roles.
 - `quotes` is a first-class entity with immutable `quote_line_items` snapshot written at send time — editing job materials after a quote is sent cannot alter what the customer approved.
 - `invoice_line_items` added — issued invoices are never recalculated from mutable job data.
-- Job status enforced at database level via CHECK constraint — JS constants alone are not sufficient.
-- `job_paused` added as a valid job status to support the pause flow.
-- `schedule_events` now has `event_type` (assessment, work, return_visit, follow_up) and `event_status` (scheduled, completed, cancelled, no_show).
+- Job status enforced at database level via CHECK constraint — 13 valid statuses including `job_paused` and `quote_declined`.
+- `schedule_events` has `event_type` (assessment, work, return_visit, follow_up) and `event_status` (scheduled, completed, cancelled, no_show).
+- `jobs.scope_addition_pending` flag — surfaces contextual alert on job card until updated quote is sent.
+- Feature flags, plan entitlements, and role permissions are three distinct concepts — never conflated.
 
 ### Seeded Data
-Chart of accounts pre-loaded:
-- 2 asset accounts
-- 2 income accounts  
-- 9 expense accounts
+- Chart of accounts pre-loaded: 2 asset, 2 income, 9 expense accounts
+- Skilled Handyman Services seeded as first business
+- Joshua seeded as owner via business_members
 
 ---
 
@@ -919,6 +817,7 @@ You open the job
   → Takes 5 minutes instead of 30
 
 One tap → quote sent via SMS link to customer
+  → quote_line_items snapshot written — immutable record of what was sent
   → Customer gets: "Hi Sarah, here's your quote — [view & approve]"
 
 Customer hasn't responded in 24hrs
@@ -948,29 +847,22 @@ Customer approves
 - [x] Working document created
 - [x] CLAUDE.md project instructions written
 
-### Phase 2 — Internal Dashboard (Current Phase)
-**Schema additions required before build begins:**
-- [ ] Add `job_photos` table to Supabase
-- [ ] Add `operator_settings` table to Supabase — auto-seed defaults on first login
+### Phase 2 — Foundation & Security (Current Phase)
+**Schema ✅ Complete — see ROADMAP.md for full checklist**
 
-**App build:**
-- [ ] React + Vite project initialized ✅ (done)
-- [ ] Supabase client connected ✅ (done)
-- [ ] RLS temporarily disabled on dev tables (Option B — re-enable with auth)
-- [ ] SettingsContext + useSettings hook wired at app root
-- [ ] useFeatureFlags hook created
-- [ ] logger.js wired to Supabase
-- [ ] Job list view — organized by status
-- [ ] Customer profile view
-- [ ] Quote builder with template selection
-- [ ] Material search (catalog + manual)
-- [ ] Quote total calculation with markup
-- [ ] SMS send via Twilio
-- [ ] Job status update on user action
-- [ ] Basic photo capture and attach to job (assessment + completion)
-- [ ] Basic auth (Supabase Auth)
+**App build — next steps in order:**
+1. Implement Supabase Auth before production UI
+2. Wire AuthContext — active user + active business
+3. Wire SettingsContext — fetched by business_id
+4. Wire useFeatureFlags and useRole hooks
+5. Wire logger.js to Supabase
+6. Re-enable RLS with business-scoped policies
+7. Build job list and customer screens
+8. Build quote builder
+9. Build field workflow (schedule, on my way, photos, status)
+10. Build invoice and payment close-out
 
-*(Ugly is fine. Working on real jobs is the goal.)*
+*(Ugly is fine. Working on real Skilled Handyman jobs is the goal.)*
 
 ### Phase 3 — Customer Portal
 - [ ] Quote view page (SMS link destination)
@@ -998,10 +890,11 @@ Customer approves
 - [ ] Reporting dashboard
 - [ ] Template self-calibration from job history
 - [ ] Business cockpit with alerts
+- [ ] Intelligent close-out checklist — job-type specific steps
 
 ### Phase 6 — SaaS Product (Future)
 - [ ] Nexawyn brand marketing site
-- [ ] Multi-tenancy (each operator isolated)
+- [ ] Multi-tenancy (each operator isolated — structure already in place)
 - [ ] Self-serve onboarding flow
 - [ ] Stripe subscription billing
 - [ ] Operator-facing reporting
@@ -1101,14 +994,16 @@ At scale, aggregate data across thousands of operators becomes a product in itse
 | Sept 7, 2026 | Feature flags for every module | No feature runs unconditionally; enables safe partial rollout; plan-tier gating built in from day one |
 | Sept 7, 2026 | dev-standards updated to include web stack | All architectural patterns documented in Rekot24/dev-standards; web-app-framework.md is the reference for this project |
 | Sept 7, 2026 | Jobs and schedule_events are separate tables | Billing and job context live on jobs; schedule_events are time blocks with a job_id FK — solves HouseCallPro multi-day job fragmentation |
-| Sept 7, 2026 | Role-based permissions in schema from day one | user_roles table built in Phase 2; features hidden (not just disabled) for unauthorized roles; solo operator = owner role with full access |
-| Sept 7, 2026 | One role per user (UNIQUE constraint on user_id) | Simple and clean for now; constraint dropped if multi-role is needed later |
+| Sept 7, 2026 | Role-based permissions via business_members | Roles are business-scoped; one user can belong to multiple businesses; user_roles superseded and dropped |
 | Sept 7, 2026 | Materials buy list pulls live HD stock and aisle data | Same API used for live pricing (RapidAPI) returns stock status and location — no additional integration needed |
 | Sept 7, 2026 | businesses table added — tenant entity | All data owned by a business not a user; enables RLS isolation and SaaS multi-tenancy without schema changes later |
-| Sept 7, 2026 | Roles moved to business_members | Role is business-scoped; one user can belong to multiple businesses in future; user_roles superseded |
 | Sept 7, 2026 | quotes as first-class immutable entity | Sent quote is a historical record; quote_line_items snapshot written at send time; editing job after quote cannot alter approved scope |
 | Sept 7, 2026 | invoice_line_items added | Issued invoices never recalculated from mutable job data; full snapshot at issuance |
 | Sept 7, 2026 | Job status constraint added at DB level | CHECK constraint on jobs.status — invalid status values rejected by database, not just application code |
+| Sept 7, 2026 | operator_settings renamed to business_settings | Clearer naming now that businesses table exists; settings are business-owned, not operator-owned |
+| Sept 7, 2026 | Feature flags, plan entitlements, and permissions are three distinct concepts | Flag = capability available; entitlement = purchased; permission = role may act. Never conflated. |
+| Sept 7, 2026 | Single service owns all status transitions | Prevents drift between jobs.status and job_status_history; no component directly mutates status |
+| Sept 7, 2026 | Settings fetched by business_id, never first row | Correct from day one; prevents multi-tenant data leak when second business is added |
 
 ---
 
@@ -1116,47 +1011,25 @@ At scale, aggregate data across thousands of operators becomes a product in itse
 
 ```
 nexawyn/
-  ├── CLAUDE.md                    ← Claude project instructions
-  ├── field-service-platform.md   ← this working document
-  ├── ROADMAP.md                  ← living roadmap (future)
+  ├── CLAUDE.md                       ← Claude project instructions
+  ├── NEXAWYN.md                      ← this working document
+  ├── ROADMAP.md                      ← living roadmap
+  ├── README.md                       ← project overview
   ├── schema/
-  │   └── phase1-core.sql         ← full Phase 1 schema (run Sept 6, 2026)
-  ├── src/                        ← React app (Phase 2)
-  │   ├── constants/              ← named constants (no magic numbers)
-  │   ├── context/                ← React Context providers
-  │   ├── hooks/                  ← useSettings, useFeatureFlags, useJobs, etc.
-  │   ├── components/             ← UI components by domain
-  │   ├── lib/                    ← supabase.js, logger.js, formatters.js
-  │   └── styles/                 ← tokens.css, globals.css
-  └── docs/                       ← additional documentation
+  │   ├── phase1-core-v2.sql          ← full Phase 1 schema (run Sept 6, 2026)
+  │   ├── phase2-additions.sql        ← Phase 2 schema additions
+  │   ├── phase3-additions.sql        ← businesses, quotes, immutable snapshots
+  │   └── phase3b-cleanup.sql         ← rename business_settings, drop user_roles
+  ├── src/                            ← React app (Phase 2)
+  │   ├── constants/                  ← named constants (no magic numbers)
+  │   ├── context/                    ← React Context providers
+  │   ├── hooks/                      ← useSettings, useFeatureFlags, useRole, etc.
+  │   ├── components/                 ← UI components by domain
+  │   ├── lib/                        ← supabase.js, logger.js, formatters.js
+  │   └── styles/                     ← tokens.css, globals.css
+  └── docs/                           ← additional documentation
 ```
 
 ---
 
-## Immediate Next Steps
-
-- [x] Name the platform — Nexawyn
-- [x] Register nexawyn.com
-- [x] Create Supabase organization and project
-- [x] Build and run Phase 1 core schema (15 tables)
-- [x] Save schema to project folder
-- [x] Write CLAUDE.md project instructions
-- [x] Update working document
-- [x] Initialize React + Vite project
-- [x] Install Supabase JS client
-- [x] Connect app to Supabase (connection confirmed)
-- [x] Update dev-standards repo with web stack framework
-- [x] Add `job_photos` table to Supabase schema
-- [x] Add `operator_settings` table to Supabase schema
-- [x] Add `users` and `user_roles` tables to Supabase schema
-- [x] Add `schedule_events` table to Supabase schema
-- [ ] Wire SettingsContext and useSettings at app root
-- [ ] Wire useFeatureFlags hook
-- [ ] Wire logger.js to Supabase
-- [ ] Disable RLS on dev tables (Option B) and build job list screen
-
-**The rule:** Build for Skilled Handyman Services first. If it works for one real business, everything else follows.
-
----
-
-*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 7, 2026 — Phase 3 schema complete: businesses/tenancy model, quotes as first-class entity, immutable line items, job status DB constraint, full UX workflow design through close-out.*
+*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 7, 2026 — Full schema complete through Phase 3b; UX workflows designed through close-out; ChatGPT review actioned; business_settings rename; all decisions logged.*
