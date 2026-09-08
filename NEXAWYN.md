@@ -839,7 +839,7 @@ Settings:
 **Instance:** us-east-2, 14g.nano
 **Status:** Healthy
 
-### Tables (21 total — Phase 1: 15 built Sept 6, 2026 | Phase 2 additions: 6)
+### Tables (26 total — Phase 1: 15 | Phase 2: 6 | Phase 3: 5)
 
 | Table | Purpose | Phase |
 |-------|---------|-------|
@@ -864,6 +864,11 @@ Settings:
 | `users` | Operator and technician accounts (linked to Supabase Auth) | 2 ✅ |
 | `user_roles` | Role assignments per user (owner, admin, technician) | 2 ✅ |
 | `schedule_events` | Time blocks pointing to jobs — supports multi-day jobs | 2 ✅ |
+| `businesses` | Tenant entity — owns all operational data; enables SaaS multi-tenancy | 3 ✅ |
+| `business_members` | Users linked to businesses with a role (owner, admin, technician) | 3 ✅ |
+| `quotes` | First-class quote entity with immutable sent snapshots | 3 ✅ |
+| `quote_line_items` | Immutable line item snapshot written when quote is sent | 3 ✅ |
+| `invoice_line_items` | Immutable line item snapshot written when invoice is issued | 3 ✅ |
 
 ### Key Design Decisions
 - `external_id UNIQUE` on entries — prevents duplicate imports from any source
@@ -876,6 +881,13 @@ Settings:
 - `storage_url` on job_photos stores a URL — file lives in storage (Supabase Storage now, R2 at scale). Schema never changes when storage backend changes.
 - `operator_settings` row auto-created on first login with all defaults — app never needs to handle a missing row
 - `customers.notes` supports flagged entries — a `pinned_note` field surfaces on every job card for that customer. Job-level flagged notes live on `jobs` as a `flagged_note` field — visible on the job card until the job closes.
+- `businesses` table added in Phase 3 — all operational data is owned by a business, not a user. Solo operator = one business, one user. Multi-tenancy is structural from day one.
+- Role assignment moved to `business_members` — roles are business-scoped, not global. `user_roles` table superseded and should be dropped before auth is wired.
+- `quotes` is a first-class entity with immutable `quote_line_items` snapshot written at send time — editing job materials after a quote is sent cannot alter what the customer approved.
+- `invoice_line_items` added — issued invoices are never recalculated from mutable job data.
+- Job status enforced at database level via CHECK constraint — JS constants alone are not sufficient.
+- `job_paused` added as a valid job status to support the pause flow.
+- `schedule_events` now has `event_type` (assessment, work, return_visit, follow_up) and `event_status` (scheduled, completed, cancelled, no_show).
 
 ### Seeded Data
 Chart of accounts pre-loaded:
@@ -1092,6 +1104,11 @@ At scale, aggregate data across thousands of operators becomes a product in itse
 | Sept 7, 2026 | Role-based permissions in schema from day one | user_roles table built in Phase 2; features hidden (not just disabled) for unauthorized roles; solo operator = owner role with full access |
 | Sept 7, 2026 | One role per user (UNIQUE constraint on user_id) | Simple and clean for now; constraint dropped if multi-role is needed later |
 | Sept 7, 2026 | Materials buy list pulls live HD stock and aisle data | Same API used for live pricing (RapidAPI) returns stock status and location — no additional integration needed |
+| Sept 7, 2026 | businesses table added — tenant entity | All data owned by a business not a user; enables RLS isolation and SaaS multi-tenancy without schema changes later |
+| Sept 7, 2026 | Roles moved to business_members | Role is business-scoped; one user can belong to multiple businesses in future; user_roles superseded |
+| Sept 7, 2026 | quotes as first-class immutable entity | Sent quote is a historical record; quote_line_items snapshot written at send time; editing job after quote cannot alter approved scope |
+| Sept 7, 2026 | invoice_line_items added | Issued invoices never recalculated from mutable job data; full snapshot at issuance |
+| Sept 7, 2026 | Job status constraint added at DB level | CHECK constraint on jobs.status — invalid status values rejected by database, not just application code |
 
 ---
 
@@ -1142,4 +1159,4 @@ nexawyn/
 
 ---
 
-*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 7, 2026 — UX philosophy, role-based permissions, job/schedule data model, and Phase 2 schema additions complete.*
+*This is a living document. Update it as decisions are made, phases complete, and the build progresses. Last updated: September 7, 2026 — Phase 3 schema complete: businesses/tenancy model, quotes as first-class entity, immutable line items, job status DB constraint, full UX workflow design through close-out.*
