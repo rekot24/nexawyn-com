@@ -704,6 +704,53 @@ Settings (all in business_settings):
 
 ---
 
+### 19. End of Day & Tomorrow Preview
+
+**End of Day summary view:**
+A read-mostly screen that surfaces what happened today and flags anything 
+unresolved. Not a task list — a status snapshot. Every actionable item has 
+a tap target.
+
+End of Day — Monday Sept 7
+✅ 3 jobs completed
+💰 $1,240 invoiced today
+⚠ 2 invoices still unpaid (sent earlier this week) [Send Reminder]
+⚠ 1 scope addition pending — Miller Residence [Open Job]
+📋 1 quote not yet sent — Johnson Assessment [Build Quote]
+⭐ 1 new Google review received
+
+**Optional administrative fields (toggleable in settings):**
+End of day admin items that may not apply to every operator are off by default. 
+Toggle on what's relevant to your business:
+- Mileage logging — enter today's miles for tax/expense tracking
+- Expense entry — quick capture of cash purchases or receipts
+- Notes — end of day notes or reminders to yourself
+
+**Tomorrow preview:**
+A separate toggleable view showing the next day's schedule — not a calendar, 
+just a focused list of what's coming. Designed so you can prep tonight:
+what jobs are scheduled, what materials are needed, any flags or messages 
+on those jobs.
+
+Tomorrow — Tuesday Sept 8
+8:00 AM Henderson Residence
+⚠ Customer messaged — read before going
+📦 3 materials needed — buy list ready
+11:00 AM Park Townhomes — Unit 4
+✓ No flags
+2:00 PM Williams — Deck Assessment
+📋 First visit — review job notes
+
+The tomorrow preview is not a calendar view. The full calendar — month view, 
+open vs busy at a glance, schedule planning — is a separate feature.
+
+**Settings:**
+- `end_of_day_mileage_enabled` — toggle mileage logging (default: off)
+- `end_of_day_expenses_enabled` — toggle expense entry (default: off)
+- `tomorrow_preview_enabled` — toggle tomorrow view (default: on)
+
+---
+
 ## Technology Stack
 
 | Layer | Tool | Cost |
