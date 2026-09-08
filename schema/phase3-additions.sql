@@ -205,3 +205,17 @@ UPDATE operator_settings
 -- Grant access to new tables
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+
+-- ============================================================
+-- Phase 3b — Cleanup
+-- Rename operator_settings to business_settings
+-- Drop user_roles (superseded by business_members)
+-- September 7, 2026
+-- ============================================================
+
+-- Rename the table
+ALTER TABLE operator_settings RENAME TO business_settings;
+
+-- Drop orphaned user_roles table
+-- Role assignment now lives in business_members (business-scoped)
+DROP TABLE user_roles;
